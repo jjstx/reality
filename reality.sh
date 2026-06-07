@@ -1,5 +1,5 @@
 #!/bin/bash
-export PORT=${PORT:-'8880'}
+export PORT=${PORT:-$(shuf -i 2000-65000 -n 1)}
 export UUID=${UUID:-$(cat /proc/sys/kernel/random/uuid)}
 
 # 检查是否为root下运行
@@ -7,6 +7,7 @@ export UUID=${UUID:-$(cat /proc/sys/kernel/random/uuid)}
 
 # 安装依赖
 Install_dependencies() {
+    echo -e "\e[1;32m开始全自动安装xhttp-reality中,请稍等...\e[0m"
     packages="gawk curl openssl qrencode"
     install=""
 
@@ -73,57 +74,60 @@ getIP() {
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
 # 配置Xray
-reconfig() {
-    reX25519Key=$(/usr/local/bin/xray x25519)
-    rePrivateKey=$(echo "${reX25519Key}" | grep "PrivateKey:" | awk '{print $2}')
-    rePublicKey=$(echo "${reX25519Key}" | grep "Password:" | awk '{print $2}')
+main() {
+    output=$(/usr/local/bin/xray x25519)
+    rePrivateKey=$(echo "${output}" | grep 'PrivateKey:' | awk '{print $2}')
+    rePublicKey=$(echo "${output}" | grep 'Password (PublicKey):' | awk '{print $3}')
     shortId=$(openssl rand -hex 8)
 
     cat >/usr/local/etc/xray/config.json <<EOF
 {
-    "inbounds": [
-        {
-            "port": $PORT,
-            "protocol": "vless",
-            "settings": {
-                "clients": [
-                    {
-                        "id": "$UUID",
-                        "flow": "xtls-rprx-vision"
-                    }
-                ],
-                "decryption": "none"
-            },
-            "streamSettings": {
-                "network": "tcp",
-                "security": "reality",
-                "realitySettings": {
-                    "show": false,
-                    "dest": "1.1.1.1:443",
-                    "xver": 0,
-                    "serverNames": [
-                        "dns.weixin.qq.com.cn"
-                    ],
-                    "privateKey": "$rePrivateKey",
-                    "minClientVer": "",
-                    "maxClientVer": "",
-                    "maxTimeDiff": 0,
-                    "shortIds": [
-                        "$shortId"
-                    ]
-                }
-            }
+  "inbounds": [
+    {
+      "port": $PORT, 
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$UUID"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "target": "dns.weixin.qq.com.cn:443",
+          "xver": 0,
+          "serverNames": [
+            "dns.weixin.qq.com.cn"
+          ],
+          "privateKey": "$rePrivateKey",
+          "shortIds": [
+            "$shortId"
+          ]
         }
-    ],
-    "outbounds": [
-        {
-            "protocol": "freedom",
-            "tag": "direct"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+      {
+        "protocol": "freedom",
+        "tag": "direct"
         },
-        {
-            "protocol": "blackhole",
-            "tag": "blocked"
-        }
+      {
+        "protocol": "blackhole",
+        "tag": "blocked"
+      }
     ]    
 }
 EOF
@@ -132,20 +136,17 @@ EOF
     systemctl enable xray.service && systemctl restart xray.service
 
     # 获取ipinfo
-    ISP=$(curl -s https://speed.cloudflare.com/meta | awk -F\" '{print $26"-"$18}' | sed -e 's/ /_/g')
+    ISP=$(curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://api.ip.sb/geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country_code")c=$(x+2);if($x=="isp")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || curl -sm 3 -H "User-Agent: Mozilla/5.0" "https://ip.api.skk.moe/cf-geoip" | tr -d '\n' | awk -F\" '{c="";i="";for(x=1;x<=NF;x++){if($x=="country")c=$(x+2);if($x=="asOrg")i=$(x+2)};if(c&&i)print c"-"i}' | sed 's/ /_/g' || echo "unknown")
 
     # 删除运行脚本
     rm -f tcp-wss.sh install-release.sh reality.sh 
     IP=$(getIP)
-    url="vless://${UUID}@${IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=dns.weixin.qq.com.cn&fp=chrome&pbk=${rePublicKey}&sid=${shortId}&type=tcp&headerType=none#$ISP"
-
-    echo ""
-    echo -e "\e[1;32mreality 安装成功\033[0m"
-    echo ""
-    echo -e "\e[1;32m${url}\033[0m"
-    echo ""
+    url="vless://${UUID}@${IP}:${PORT}?encryption=none&security=reality&sni=dns.weixin.qq.com.cn&fp=chrome&pbk=${rePublicKey}&sid=${shortId}&allowInsecure=1&type=xhttp&mode=auto#$ISP"
+        
+    echo -e "\n\e[1;32mxhttp-reality 安装成功\033[0m\n"
+    echo -e "\e[1;32m${url}\033[0m\n"
     qrencode -t ANSIUTF8 -m 2 -s 2 -o - "$url"
     echo ""   
 
 }
-reconfig
+main
